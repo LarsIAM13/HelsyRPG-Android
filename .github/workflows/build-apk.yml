@@ -1,0 +1,75 @@
+name: Build HelsyRPG APK
+
+on:
+  push:
+    branches: ["apk-build-v5.20"]
+    paths:
+      - "app/**"
+      - "build.gradle"
+      - "settings.gradle"
+      - "gradle.properties"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android 35 SDK
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Verify embedded HelsyRPG runtime
+        run: |
+          test -s app/src/main/assets/helsy_runtime.zip
+          python - <<'PY'
+          import zipfile
+          p = 'app/src/main/assets/helsy_runtime.zip'
+          required = {'server.py','legacy_engine.py','helsy.db','index.html','classic.html','config.json','lorebook.txt'}
+          with zipfile.ZipFile(p) as z:
+              names = set(z.namelist())
+          missing = sorted(required - names)
+          if missing:
+              raise SystemExit(f'Missing runtime files: {missing}')
+          print('HelsyRPG runtime OK:', len(names), 'entries')
+          PY
+
+      - name: Build debug APK
+        run: gradle --no-daemon --stacktrace assembleDebug
+
+      - name: Verify APK
+        run: |
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          sha256sum app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: HelsyRPG-v5.20-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
